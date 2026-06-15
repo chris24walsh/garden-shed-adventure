@@ -1,5 +1,6 @@
 <!DOCTYPE html><html lang="en"><head><meta name="x-poe-datastore-behavior" content="local_only"><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Garden Shed Adventure</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -67,6 +68,70 @@
     min-height: 30px;
   }
   #inventory .label { color: #ffd700; }
+  #toggleControls {
+    margin-top: 12px;
+    padding: 10px 20px;
+    background: #333;
+    color: #ffd700;
+    border: 2px solid #ffd700;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  #toggleControls:active { background: #444; }
+  #touchControls {
+    display: none;
+    margin-top: 12px;
+    width: 100%;
+    max-width: 400px;
+    padding: 12px;
+    background: rgba(0,0,0,0.7);
+    border: 2px solid #444;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  #touchControls.visible { display: flex; }
+  .dpad {
+    display: grid;
+    grid-template-columns: 56px 56px 56px;
+    grid-template-rows: 56px 56px 56px;
+    gap: 4px;
+  }
+  .dpad .spacer { visibility: hidden; pointer-events: none; }
+  .touch-btn {
+    width: 56px;
+    height: 56px;
+    background: rgba(50,50,50,0.9);
+    border: 2px solid #666;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 22px;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    touch-action: manipulation;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .touch-btn:active, .touch-btn.pressed {
+    background: #ffd700;
+    color: #000;
+    border-color: #ffd700;
+  }
+  .interact-btn {
+    width: 72px;
+    height: 72px;
+    font-size: 16px;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
@@ -79,6 +144,18 @@
     Move: <span>WASD</span> or <span>Arrow Keys</span> &nbsp;|&nbsp; Interact: <span>E</span> or <span>Space</span>
   </div>
   <div id="inventory"><span class="label">Inventory:</span> <span id="invList">(empty)</span></div>
+  <button type="button" id="toggleControls">Show Touch Controls</button>
+  <div id="touchControls">
+    <div class="dpad">
+      <div class="spacer"></div>
+      <button type="button" class="touch-btn" data-key="arrowup" aria-label="Up">▲</button>
+      <div class="spacer"></div>
+      <button type="button" class="touch-btn" data-key="arrowleft" aria-label="Left">◀</button>
+      <button type="button" class="touch-btn" data-key="arrowdown" aria-label="Down">▼</button>
+      <button type="button" class="touch-btn" data-key="arrowright" aria-label="Right">▶</button>
+    </div>
+    <button type="button" class="touch-btn interact-btn" data-key="e" aria-label="Interact">E</button>
+  </div>
 
 <script>
 const canvas = document.getElementById('game');
@@ -99,6 +176,40 @@ window.addEventListener('keydown', e => {
   if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()) || e.key === ' ') e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ---------- Touch controls ----------
+const touchControls = document.getElementById('touchControls');
+const toggleControlsBtn = document.getElementById('toggleControls');
+let touchControlsVisible = false;
+
+toggleControlsBtn.addEventListener('click', () => {
+  touchControlsVisible = !touchControlsVisible;
+  touchControls.classList.toggle('visible', touchControlsVisible);
+  toggleControlsBtn.textContent = touchControlsVisible ? 'Hide Touch Controls' : 'Show Touch Controls';
+});
+
+function bindTouchButton(btn) {
+  const key = btn.dataset.key;
+  const press = (e) => {
+    e.preventDefault();
+    if (!keys[key]) justPressed[key] = true;
+    keys[key] = true;
+    btn.classList.add('pressed');
+  };
+  const release = (e) => {
+    e.preventDefault();
+    keys[key] = false;
+    btn.classList.remove('pressed');
+  };
+  btn.addEventListener('touchstart', press, { passive: false });
+  btn.addEventListener('touchend', release);
+  btn.addEventListener('touchcancel', release);
+  btn.addEventListener('mousedown', press);
+  btn.addEventListener('mouseup', release);
+  btn.addEventListener('mouseleave', release);
+}
+
+document.querySelectorAll('.touch-btn').forEach(bindTouchButton);
 
 // ---------- Player ----------
 const player = {
@@ -581,7 +692,8 @@ function rectsOverlap(a, b) {
 }
 
 function showDialog(name, text) {
-  dialog.innerHTML = `<div class="name">${name}</div><div>${text}</div><div class="hint">Press E to close</div>`;
+  const closeHint = touchControlsVisible ? 'Tap E to close' : 'Press E to close';
+  dialog.innerHTML = `<div class="name">${name}</div><div>${text}</div><div class="hint">${closeHint}</div>`;
   dialog.style.display = 'block';
   dialogOpen = true;
 }
