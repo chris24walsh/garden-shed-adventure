@@ -1,0 +1,1072 @@
+<!DOCTYPE html><html lang="en"><head><meta name="x-poe-datastore-behavior" content="local_only"><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+<meta charset="UTF-8">
+<title>Garden Shed Adventure</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a1a;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 10px;
+  }
+  h1 {
+    margin-bottom: 10px;
+    color: #ffd700;
+    text-shadow: 2px 2px 0 #000;
+    font-size: 24px;
+  }
+  #gameContainer {
+    position: relative;
+    border: 4px solid #555;
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(255,215,0,0.3);
+    background: #000;
+  }
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    max-width: 100%;
+    height: auto;
+  }
+  #dialog {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+    background: rgba(0,0,0,0.85);
+    border: 3px solid #ffd700;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 16px;
+    color: #fff;
+    display: none;
+    pointer-events: none;
+  }
+  #dialog .name { color: #ffd700; font-weight: bold; margin-bottom: 4px; }
+  #dialog .hint { color: #aaa; font-size: 12px; margin-top: 6px; font-style: italic; }
+  #controls {
+    margin-top: 12px;
+    color: #aaa;
+    font-size: 13px;
+    text-align: center;
+  }
+  #controls span { color: #ffd700; }
+  #inventory {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.6);
+    border: 2px solid #444;
+    border-radius: 4px;
+    font-size: 13px;
+    min-height: 30px;
+  }
+  #inventory .label { color: #ffd700; }
+</style>
+</head>
+<body>
+  <h1>🌿 Garden Shed Adventure 🌿</h1>
+  <div id="gameContainer">
+    <canvas id="game" width="640" height="480"></canvas>
+    <div id="dialog"></div>
+  </div>
+  <div id="controls">
+    Move: <span>WASD</span> or <span>Arrow Keys</span> &nbsp;|&nbsp; Interact: <span>E</span> or <span>Space</span>
+  </div>
+  <div id="inventory"><span class="label">Inventory:</span> <span id="invList">(empty)</span></div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const dialog = document.getElementById('dialog');
+const invList = document.getElementById('invList');
+
+const W = canvas.width;
+const H = canvas.height;
+const TS = 32; // tile size
+
+// ---------- Input ----------
+const keys = {};
+const justPressed = {};
+window.addEventListener('keydown', e => {
+  if (!keys[e.key.toLowerCase()]) justPressed[e.key.toLowerCase()] = true;
+  keys[e.key.toLowerCase()] = true;
+  if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()) || e.key === ' ') e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ---------- Player ----------
+const player = {
+  x: 320, y: 360,
+  w: 20, h: 22,
+  speed: 2.2,
+  dir: 'down',
+  frame: 0,
+  moving: false,
+  animTimer: 0
+};
+
+// ---------- Scenes ----------
+let currentScene = 'garden';
+let inventory = new Set();
+let dialogTimeout = null;
+
+// Solid rectangles for collision (per scene)
+// Interactables: {x,y,w,h, name, action(), color, draw()}
+const scenes = {
+  garden: {
+    solids: [],
+    interactables: [],
+    enter: () => {}
+  },
+  shed: {
+    solids: [],
+    interactables: [],
+    enter: () => {}
+  }
+};
+
+// ---------- Build Garden Scene ----------
+function buildGarden() {
+  const s = scenes.garden;
+  s.solids = [];
+  s.interactables = [];
+
+  // Outer fence (border)
+  s.solids.push({x:0,y:0,w:W,h:16});       // top
+  s.solids.push({x:0,y:H-16,w:W,h:16});    // bottom
+  s.solids.push({x:0,y:0,w:16,h:H});       // left
+  s.solids.push({x:W-16,y:0,w:16,h:H});    // right
+
+  // Trees
+  const trees = [
+    {x:60, y:60}, {x:120, y:60}, {x:540, y:60},
+    {x:60, y:380}, {x:540, y:380}, {x:580, y:200}
+  ];
+  trees.forEach(t => {
+    s.solids.push({x:t.x+4, y:t.y+20, w:24, h:20, _tree:true, _tx:t.x, _ty:t.y});
+  });
+  s.trees = trees;
+
+  // Flower patches (decorative, no collision)
+  s.flowers = [
+    {x:200,y:120,c:'#ff69b4'},{x:230,y:140,c:'#ffeb3b'},{x:260,y:120,c:'#fff'},
+    {x:420,y:140,c:'#ff69b4'},{x:450,y:120,c:'#9c27b0'},{x:480,y:140,c:'#ffeb3b'},
+    {x:180,y:300,c:'#fff'},{x:210,y:320,c:'#ff69b4'},
+    {x:440,y:300,c:'#9c27b0'},{x:470,y:320,c:'#ffeb3b'}
+  ];
+
+  // Path (decorative)
+  s.path = {x:300, y:200, w:40, h:160};
+
+  // Shed building
+  const shed = {x: 240, y: 100, w: 160, h: 110};
+  s.shed = shed;
+  // Shed walls (solid except door)
+  // Left wall
+  s.solids.push({x:shed.x, y:shed.y, w:8, h:shed.h});
+  // Right wall
+  s.solids.push({x:shed.x+shed.w-8, y:shed.y, w:8, h:shed.h});
+  // Top wall
+  s.solids.push({x:shed.x, y:shed.y, w:shed.w, h:8});
+  // Bottom wall (split for door)
+  const doorW = 32;
+  const doorX = shed.x + shed.w/2 - doorW/2;
+  s.solids.push({x:shed.x, y:shed.y+shed.h-8, w:doorX-shed.x, h:8});
+  s.solids.push({x:doorX+doorW, y:shed.y+shed.h-8, w:shed.x+shed.w-(doorX+doorW), h:8});
+
+  // Door interactable
+  s.interactables.push({
+    x: doorX, y: shed.y+shed.h-10, w: doorW, h: 14,
+    name: 'Shed Door',
+    prompt: 'Enter the shed',
+    action: () => {
+      transitionTo('shed');
+    }
+  });
+
+  // A garden gnome to interact with
+  s.interactables.push({
+    x: 150, y: 240, w: 18, h: 22,
+    name: 'Garden Gnome',
+    prompt: 'Talk to gnome',
+    action: () => {
+      showDialog('Garden Gnome', 'Why hello there! Have you checked the shed lately? I think I left my tools in there.');
+    },
+    draw: (ctx, o) => {
+      // body
+      ctx.fillStyle = '#c44';
+      ctx.fillRect(o.x+3, o.y+10, 12, 12);
+      // head
+      ctx.fillStyle = '#ffe0bd';
+      ctx.fillRect(o.x+5, o.y+6, 8, 6);
+      // hat
+      ctx.fillStyle = '#c44';
+      ctx.beginPath();
+      ctx.moveTo(o.x+3, o.y+8);
+      ctx.lineTo(o.x+9, o.y-2);
+      ctx.lineTo(o.x+15, o.y+8);
+      ctx.closePath();
+      ctx.fill();
+      // beard
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(o.x+5, o.y+10, 8, 3);
+    },
+    solid: true
+  });
+  // Add gnome as solid
+  s.solids.push({x:150, y:250, w:18, h:12});
+
+  // A bird bath
+  s.interactables.push({
+    x: 460, y: 240, w: 24, h: 20,
+    name: 'Bird Bath',
+    prompt: 'Inspect bird bath',
+    action: () => {
+      showDialog('Bird Bath', 'A small bird is happily splashing in the water. It tweets at you cheerfully!');
+    },
+    draw: (ctx, o) => {
+      ctx.fillStyle = '#888';
+      ctx.fillRect(o.x+8, o.y+10, 8, 12);
+      ctx.fillStyle = '#aaa';
+      ctx.beginPath();
+      ctx.ellipse(o.x+12, o.y+8, 12, 5, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#4a90e2';
+      ctx.beginPath();
+      ctx.ellipse(o.x+12, o.y+8, 9, 3, 0, 0, Math.PI*2);
+      ctx.fill();
+    },
+    solid: true
+  });
+  s.solids.push({x:464, y:248, w:16, h:14});
+}
+
+// ---------- Build Shed Scene ----------
+function buildShed() {
+  const s = scenes.shed;
+  s.solids = [];
+  s.interactables = [];
+
+  // Shed interior bounds
+  const wallT = 60, wallB = 420, wallL = 80, wallR = 560;
+  s.bounds = {wallT, wallB, wallL, wallR};
+
+  // Walls
+  s.solids.push({x:0, y:0, w:W, h:wallT});           // top
+  s.solids.push({x:0, y:wallB, w:W, h:H-wallB});     // bottom (with door gap drawn separately)
+  s.solids.push({x:0, y:0, w:wallL, h:H});           // left
+  s.solids.push({x:wallR, y:0, w:W-wallR, h:H});     // right
+
+  // Door (exit)
+  const doorW = 40;
+  const doorX = W/2 - doorW/2;
+  // Remove bottom solids near door
+  s.solids = s.solids.filter(sol => !(sol.y === wallB)); // remove old bottom
+  s.solids.push({x:0, y:wallB, w:doorX, h:H-wallB});
+  s.solids.push({x:doorX+doorW, y:wallB, w:W-(doorX+doorW), h:H-wallB});
+
+  s.door = {x:doorX, y:wallB-4, w:doorW, h:8};
+  s.interactables.push({
+    x: doorX, y: wallB-2, w: doorW, h: 10,
+    name: 'Exit Door',
+    prompt: 'Leave shed',
+    action: () => {
+      transitionTo('garden');
+    }
+  });
+
+  // ---- Items in the shed ----
+  // Workbench (along top wall)
+  const bench = {x:120, y:wallT+10, w:200, h:30};
+  s.bench = bench;
+  s.solids.push(bench);
+
+  // Tool rack on workbench
+  s.interactables.push({
+    x: bench.x+10, y: bench.y-20, w: 30, h: 30,
+    name: 'Hammer',
+    prompt: 'Take the hammer',
+    action: () => {
+      if (!inventory.has('Hammer')) {
+        inventory.add('Hammer');
+        updateInventory();
+        showDialog('Hammer', 'You picked up a sturdy old hammer. Could be useful for fixing things!');
+      } else {
+        showDialog('Hammer', 'You already have the hammer.');
+      }
+    },
+    draw: (ctx, o) => {
+      if (inventory.has('Hammer')) return;
+      // handle
+      ctx.fillStyle = '#8b4513';
+      ctx.fillRect(o.x+12, o.y+5, 4, 22);
+      // head
+      ctx.fillStyle = '#666';
+      ctx.fillRect(o.x+6, o.y, 16, 10);
+      ctx.fillStyle = '#999';
+      ctx.fillRect(o.x+6, o.y, 16, 3);
+    }
+  });
+
+  s.interactables.push({
+    x: bench.x+60, y: bench.y-20, w: 30, h: 30,
+    name: 'Saw',
+    prompt: 'Take the saw',
+    action: () => {
+      if (!inventory.has('Saw')) {
+        inventory.add('Saw');
+        updateInventory();
+        showDialog('Saw', 'A toothy hand saw. Sharp! Be careful.');
+      } else {
+        showDialog('Saw', 'Already in your inventory.');
+      }
+    },
+    draw: (ctx, o) => {
+      if (inventory.has('Saw')) return;
+      ctx.fillStyle = '#ccc';
+      ctx.beginPath();
+      ctx.moveTo(o.x+2, o.y+12);
+      ctx.lineTo(o.x+24, o.y+8);
+      ctx.lineTo(o.x+24, o.y+14);
+      ctx.lineTo(o.x+2, o.y+18);
+      ctx.closePath();
+      ctx.fill();
+      // teeth
+      ctx.fillStyle = '#888';
+      for (let i=0; i<8; i++) {
+        ctx.fillRect(o.x+4+i*3, o.y+17, 2, 3);
+      }
+      // handle
+      ctx.fillStyle = '#8b4513';
+      ctx.fillRect(o.x+22, o.y+6, 8, 14);
+    }
+  });
+
+  s.interactables.push({
+    x: bench.x+110, y: bench.y-20, w: 30, h: 30,
+    name: 'Wrench',
+    prompt: 'Take the wrench',
+    action: () => {
+      if (!inventory.has('Wrench')) {
+        inventory.add('Wrench');
+        updateInventory();
+        showDialog('Wrench', 'A heavy adjustable wrench. Perfect for stubborn bolts.');
+      } else {
+        showDialog('Wrench', 'Already collected.');
+      }
+    },
+    draw: (ctx, o) => {
+      if (inventory.has('Wrench')) return;
+      ctx.fillStyle = '#aaa';
+      ctx.fillRect(o.x+12, o.y+8, 4, 18);
+      ctx.fillRect(o.x+8, o.y+2, 12, 8);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(o.x+11, o.y+4, 6, 4);
+    }
+  });
+
+  // Paint cans on workbench
+  s.interactables.push({
+    x: bench.x+160, y: bench.y-15, w: 24, h: 24,
+    name: 'Paint Can',
+    prompt: 'Open paint can',
+    action: () => {
+      showDialog('Paint Can', 'Forest green paint, half full. The lid is crusted shut from years of neglect.');
+    },
+    draw: (ctx, o) => {
+      ctx.fillStyle = '#444';
+      ctx.fillRect(o.x+4, o.y+6, 16, 16);
+      ctx.fillStyle = '#2e7d32';
+      ctx.fillRect(o.x+4, o.y+4, 16, 4);
+      ctx.fillStyle = '#222';
+      ctx.fillRect(o.x+4, o.y+14, 16, 1);
+    }
+  });
+
+  // Shovel (leaning on left wall)
+  s.interactables.push({
+    x: wallL+8, y: 200, w: 20, h: 80,
+    name: 'Shovel',
+    prompt: 'Take the shovel',
+    action: () => {
+      if (!inventory.has('Shovel')) {
+        inventory.add('Shovel');
+        updateInventory();
+        showDialog('Shovel', 'A trusty garden shovel. Good for digging up secrets!');
+      } else {
+        showDialog('Shovel', 'You already have it.');
+      }
+    },
+    draw: (ctx, o) => {
+      if (inventory.has('Shovel')) return;
+      ctx.fillStyle = '#8b4513';
+      ctx.fillRect(o.x+8, o.y, 4, 60);
+      ctx.fillStyle = '#777';
+      ctx.beginPath();
+      ctx.moveTo(o.x+4, o.y+58);
+      ctx.lineTo(o.x+16, o.y+58);
+      ctx.lineTo(o.x+14, o.y+78);
+      ctx.lineTo(o.x+6, o.y+78);
+      ctx.closePath();
+      ctx.fill();
+    }
+  });
+
+  // Wooden crate (right side)
+  const crate = {x:480, y:150, w:50, h:50};
+  s.interactables.push({
+    x: crate.x, y: crate.y, w: crate.w, h: crate.h,
+    name: 'Wooden Crate',
+    prompt: 'Open crate',
+    action: () => {
+      if (!inventory.has('Old Map')) {
+        inventory.add('Old Map');
+        updateInventory();
+        showDialog('Wooden Crate', 'You pry open the crate and find an old, weathered map of the garden! It marks an X near the bird bath...');
+      } else {
+        showDialog('Wooden Crate', 'The crate is empty now. Just some old straw at the bottom.');
+      }
+    },
+    draw: (ctx, o) => {
+      ctx.fillStyle = '#8b4513';
+      ctx.fillRect(o.x, o.y, o.w, o.h);
+      ctx.strokeStyle = '#5d2f0a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(o.x, o.y, o.w, o.h);
+      ctx.beginPath();
+      ctx.moveTo(o.x, o.y);
+      ctx.lineTo(o.x+o.w, o.y+o.h);
+      ctx.moveTo(o.x+o.w, o.y);
+      ctx.lineTo(o.x, o.y+o.h);
+      ctx.stroke();
+    },
+    solid: true
+  });
+  s.solids.push(crate);
+
+  // Stack of flower pots
+  const pots = {x:430, y:340, w:40, h:50};
+  s.interactables.push({
+    x: pots.x, y: pots.y, w: pots.w, h: pots.h,
+    name: 'Flower Pots',
+    prompt: 'Look at pots',
+    action: () => {
+      showDialog('Flower Pots', 'A stack of terracotta pots. Some have cracked, but a few still have dried soil and forgotten roots inside.');
+    },
+    draw: (ctx, o) => {
+      for (let i=0; i<3; i++) {
+        ctx.fillStyle = '#c1440e';
+        ctx.fillRect(o.x+5, o.y+15*i, 30, 14);
+        ctx.fillStyle = '#a03408';
+        ctx.fillRect(o.x+3, o.y+15*i, 34, 3);
+      }
+    },
+    solid: true
+  });
+  s.solids.push(pots);
+
+  // Bicycle (left bottom)
+  const bike = {x:130, y:340, w:60, h:40};
+  s.interactables.push({
+    x: bike.x, y: bike.y, w: bike.w, h: bike.h,
+    name: 'Old Bicycle',
+    prompt: 'Examine bicycle',
+    action: () => {
+      showDialog('Old Bicycle', 'A rusty old bicycle. The tires are flat, but it brings back fond memories of summer rides.');
+    },
+    draw: (ctx, o) => {
+      // wheels
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(o.x+12, o.y+28, 10, 0, Math.PI*2);
+      ctx.arc(o.x+48, o.y+28, 10, 0, Math.PI*2);
+      ctx.stroke();
+      // frame
+      ctx.strokeStyle = '#c44';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(o.x+12, o.y+28);
+      ctx.lineTo(o.x+30, o.y+10);
+      ctx.lineTo(o.x+48, o.y+28);
+      ctx.lineTo(o.x+30, o.y+28);
+      ctx.lineTo(o.x+12, o.y+28);
+      ctx.stroke();
+      // handlebar
+      ctx.beginPath();
+      ctx.moveTo(o.x+30, o.y+10);
+      ctx.lineTo(o.x+25, o.y+5);
+      ctx.lineTo(o.x+35, o.y+5);
+      ctx.stroke();
+    },
+    solid: true
+  });
+  s.solids.push(bike);
+
+  // Lantern hanging
+  s.interactables.push({
+    x: 250, y: 130, w: 24, h: 30,
+    name: 'Lantern',
+    prompt: 'Light the lantern',
+    action: () => {
+      if (!inventory.has('Lantern Lit')) {
+        inventory.add('Lantern Lit');
+        updateInventory();
+        showDialog('Lantern', 'You strike a match and light the old oil lantern. The shed glows with warm, flickering light!');
+      } else {
+        showDialog('Lantern', 'The lantern is already burning brightly.');
+      }
+    },
+    draw: (ctx, o) => {
+      // chain
+      ctx.strokeStyle = '#444';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(o.x+12, 60);
+      ctx.lineTo(o.x+12, o.y);
+      ctx.stroke();
+      // lantern
+      ctx.fillStyle = '#333';
+      ctx.fillRect(o.x+4, o.y+4, 16, 20);
+      ctx.fillRect(o.x+2, o.y+2, 20, 4);
+      ctx.fillRect(o.x+2, o.y+22, 20, 4);
+      // glass
+      ctx.fillStyle = inventory.has('Lantern Lit') ? '#ffeb3b' : '#222';
+      ctx.fillRect(o.x+6, o.y+8, 12, 12);
+      if (inventory.has('Lantern Lit')) {
+        ctx.fillStyle = 'rgba(255,235,59,0.2)';
+        ctx.beginPath();
+        ctx.arc(o.x+12, o.y+14, 60, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+  });
+
+  // Sign / Note on wall
+  s.interactables.push({
+    x: 350, y: wallT+5, w: 40, h: 30,
+    name: 'Pinned Note',
+    prompt: 'Read the note',
+    action: () => {
+      showDialog('Pinned Note', '"Remember to oil the hinges and water the tomatoes. - Grandpa"');
+    },
+    draw: (ctx, o) => {
+      ctx.fillStyle = '#fff8dc';
+      ctx.fillRect(o.x, o.y, o.w, o.h);
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      for (let i=0; i<4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(o.x+4, o.y+6+i*6);
+        ctx.lineTo(o.x+o.w-4, o.y+6+i*6);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#c00';
+      ctx.beginPath();
+      ctx.arc(o.x+o.w/2, o.y+2, 2, 0, Math.PI*2);
+      ctx.fill();
+    }
+  });
+}
+
+// ---------- Helpers ----------
+function rectsOverlap(a, b) {
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+
+function showDialog(name, text) {
+  dialog.innerHTML = `<div class="name">${name}</div><div>${text}</div><div class="hint">Press E to close</div>`;
+  dialog.style.display = 'block';
+  dialogOpen = true;
+}
+
+function hideDialog() {
+  dialog.style.display = 'none';
+  dialogOpen = false;
+}
+
+function updateInventory() {
+  if (inventory.size === 0) {
+    invList.textContent = '(empty)';
+  } else {
+    invList.textContent = Array.from(inventory).join(', ');
+  }
+}
+
+let dialogOpen = false;
+
+function transitionTo(scene) {
+  currentScene = scene;
+  if (scene === 'shed') {
+    // Place player just inside door
+    player.x = W/2 - player.w/2;
+    player.y = scenes.shed.bounds.wallB - player.h - 10;
+    player.dir = 'up';
+  } else {
+    // Place player just outside shed door
+    const shed = scenes.garden.shed;
+    player.x = shed.x + shed.w/2 - player.w/2;
+    player.y = shed.y + shed.h + 6;
+    player.dir = 'down';
+  }
+}
+
+// ---------- Update ----------
+function update(dt) {
+  if (dialogOpen) {
+    if (justPressed['e'] || justPressed[' '] || justPressed['enter']) {
+      hideDialog();
+    }
+    return;
+  }
+
+  let dx = 0, dy = 0;
+  if (keys['arrowleft'] || keys['a']) { dx -= 1; player.dir = 'left'; }
+  if (keys['arrowright'] || keys['d']) { dx += 1; player.dir = 'right'; }
+  if (keys['arrowup'] || keys['w']) { dy -= 1; player.dir = 'up'; }
+  if (keys['arrowdown'] || keys['s']) { dy += 1; player.dir = 'down'; }
+
+  player.moving = (dx !== 0 || dy !== 0);
+
+  if (player.moving) {
+    const len = Math.hypot(dx, dy);
+    dx = (dx/len) * player.speed;
+    dy = (dy/len) * player.speed;
+
+    // Move X then Y with collision
+    const scene = scenes[currentScene];
+    let nx = player.x + dx;
+    let ny = player.y;
+    let pBox = {x:nx, y:ny+8, w:player.w, h:player.h-8}; // feet hitbox
+    let blocked = false;
+    for (const s of scene.solids) {
+      if (rectsOverlap(pBox, s)) { blocked = true; break; }
+    }
+    if (!blocked) player.x = nx;
+
+    nx = player.x;
+    ny = player.y + dy;
+    pBox = {x:nx, y:ny+8, w:player.w, h:player.h-8};
+    blocked = false;
+    for (const s of scene.solids) {
+      if (rectsOverlap(pBox, s)) { blocked = true; break; }
+    }
+    if (!blocked) player.y = ny;
+
+    // animation
+    player.animTimer += dt;
+    if (player.animTimer > 150) {
+      player.frame = (player.frame + 1) % 4;
+      player.animTimer = 0;
+    }
+  } else {
+    player.frame = 0;
+  }
+
+  // Find interactable in front
+  const interact = getNearbyInteractable();
+  if (interact) {
+    if (justPressed['e'] || justPressed[' '] || justPressed['enter']) {
+      interact.action();
+    }
+  }
+}
+
+function getNearbyInteractable() {
+  const scene = scenes[currentScene];
+  const px = player.x + player.w/2;
+  const py = player.y + player.h/2;
+  let nearest = null, nd = 999;
+  for (const it of scene.interactables) {
+    const cx = it.x + it.w/2;
+    const cy = it.y + it.h/2;
+    const d = Math.hypot(px-cx, py-cy);
+    if (d < 50 && d < nd) {
+      nd = d;
+      nearest = it;
+    }
+  }
+  return nearest;
+}
+
+// ---------- Drawing ----------
+function drawPlayer() {
+  const px = Math.floor(player.x);
+  const py = Math.floor(player.y);
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(px+player.w/2, py+player.h, 10, 3, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Body bob
+  const bob = (player.moving && (player.frame === 1 || player.frame === 3)) ? -1 : 0;
+
+  // Tunic (green)
+  ctx.fillStyle = '#2e7d32';
+  ctx.fillRect(px+2, py+10+bob, 16, 12);
+  // Belt
+  ctx.fillStyle = '#5d4037';
+  ctx.fillRect(px+2, py+18+bob, 16, 2);
+  // Head
+  ctx.fillStyle = '#ffe0bd';
+  ctx.fillRect(px+4, py+4+bob, 12, 8);
+  // Hair/cap (green hat)
+  ctx.fillStyle = '#1b5e20';
+  ctx.fillRect(px+3, py+2+bob, 14, 4);
+  ctx.beginPath();
+  ctx.moveTo(px+10, py-2+bob);
+  ctx.lineTo(px+18, py+4+bob);
+  ctx.lineTo(px+12, py+4+bob);
+  ctx.closePath();
+  ctx.fill();
+
+  // Eyes based on direction
+  ctx.fillStyle = '#000';
+  if (player.dir === 'down') {
+    ctx.fillRect(px+7, py+8+bob, 2, 2);
+    ctx.fillRect(px+11, py+8+bob, 2, 2);
+  } else if (player.dir === 'up') {
+    // no eyes (back of head)
+  } else if (player.dir === 'left') {
+    ctx.fillRect(px+5, py+8+bob, 2, 2);
+  } else if (player.dir === 'right') {
+    ctx.fillRect(px+13, py+8+bob, 2, 2);
+  }
+
+  // Arms (simple legs/arms)
+  ctx.fillStyle = '#ffe0bd';
+  const armOffset = player.moving ? (player.frame % 2 === 0 ? 0 : 2) : 0;
+  ctx.fillRect(px+1, py+12+bob+armOffset, 3, 6);
+  ctx.fillRect(px+16, py+12+bob-armOffset, 3, 6);
+
+  // Legs/boots
+  ctx.fillStyle = '#3e2723';
+  if (player.moving) {
+    if (player.frame % 2 === 0) {
+      ctx.fillRect(px+4, py+20, 5, 4);
+      ctx.fillRect(px+11, py+22, 5, 2);
+    } else {
+      ctx.fillRect(px+4, py+22, 5, 2);
+      ctx.fillRect(px+11, py+20, 5, 4);
+    }
+  } else {
+    ctx.fillRect(px+4, py+20, 5, 4);
+    ctx.fillRect(px+11, py+20, 5, 4);
+  }
+}
+
+function drawTree(t) {
+  // Trunk
+  ctx.fillStyle = '#5d2f0a';
+  ctx.fillRect(t.x+10, t.y+24, 12, 16);
+  // Foliage
+  ctx.fillStyle = '#1b5e20';
+  ctx.beginPath();
+  ctx.arc(t.x+16, t.y+14, 16, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = '#2e7d32';
+  ctx.beginPath();
+  ctx.arc(t.x+12, t.y+10, 10, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(t.x+22, t.y+12, 8, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function drawGarden() {
+  const s = scenes.garden;
+  // Grass
+  ctx.fillStyle = '#4caf50';
+  ctx.fillRect(0, 0, W, H);
+  // Grass texture
+  ctx.fillStyle = '#388e3c';
+  for (let i=0; i<200; i++) {
+    const x = (i*47) % W;
+    const y = (i*89) % H;
+    ctx.fillRect(x, y, 2, 3);
+  }
+  ctx.fillStyle = '#66bb6a';
+  for (let i=0; i<150; i++) {
+    const x = (i*73) % W;
+    const y = (i*53) % H;
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  // Path
+  ctx.fillStyle = '#bca77a';
+  ctx.fillRect(s.path.x, s.path.y, s.path.w, s.path.h);
+  ctx.fillStyle = '#a89060';
+  for (let i=0; i<20; i++) {
+    const x = s.path.x + ((i*13) % s.path.w);
+    const y = s.path.y + ((i*23) % s.path.h);
+    ctx.fillRect(x, y, 3, 3);
+  }
+
+  // Fence (top, bottom, sides)
+  ctx.fillStyle = '#6d4c41';
+  ctx.fillRect(0, 0, W, 16);
+  ctx.fillRect(0, H-16, W, 16);
+  ctx.fillRect(0, 0, 16, H);
+  ctx.fillRect(W-16, 0, 16, H);
+  // Fence planks
+  ctx.fillStyle = '#5d4037';
+  for (let x=0; x<W; x+=20) {
+    ctx.fillRect(x, 0, 2, 16);
+    ctx.fillRect(x, H-16, 2, 16);
+  }
+  for (let y=0; y<H; y+=20) {
+    ctx.fillRect(0, y, 16, 2);
+    ctx.fillRect(W-16, y, 16, 2);
+  }
+
+  // Flowers
+  s.flowers.forEach(f => {
+    ctx.fillStyle = '#2e7d32';
+    ctx.fillRect(f.x+3, f.y+4, 2, 4);
+    ctx.fillStyle = f.c;
+    ctx.beginPath();
+    ctx.arc(f.x+4, f.y+3, 3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#ffeb3b';
+    ctx.fillRect(f.x+3, f.y+2, 2, 2);
+  });
+
+  // Shed
+  const shed = s.shed;
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.fillRect(shed.x+4, shed.y+shed.h+2, shed.w, 6);
+  // Walls
+  ctx.fillStyle = '#8d6e63';
+  ctx.fillRect(shed.x, shed.y, shed.w, shed.h);
+  // Wall planks
+  ctx.fillStyle = '#6d4c41';
+  for (let x=shed.x; x<shed.x+shed.w; x+=12) {
+    ctx.fillRect(x, shed.y, 1, shed.h);
+  }
+  // Roof
+  ctx.fillStyle = '#5d4037';
+  ctx.beginPath();
+  ctx.moveTo(shed.x-10, shed.y+5);
+  ctx.lineTo(shed.x+shed.w/2, shed.y-25);
+  ctx.lineTo(shed.x+shed.w+10, shed.y+5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#4e342e';
+  ctx.beginPath();
+  ctx.moveTo(shed.x-10, shed.y+5);
+  ctx.lineTo(shed.x+shed.w+10, shed.y+5);
+  ctx.lineTo(shed.x+shed.w+10, shed.y+10);
+  ctx.lineTo(shed.x-10, shed.y+10);
+  ctx.closePath();
+  ctx.fill();
+
+  // Window
+  ctx.fillStyle = '#37474f';
+  ctx.fillRect(shed.x+20, shed.y+30, 24, 20);
+  ctx.fillStyle = '#81d4fa';
+  ctx.fillRect(shed.x+22, shed.y+32, 20, 16);
+  ctx.fillStyle = '#37474f';
+  ctx.fillRect(shed.x+31, shed.y+32, 2, 16);
+  ctx.fillRect(shed.x+22, shed.y+39, 20, 2);
+
+  ctx.fillStyle = '#37474f';
+  ctx.fillRect(shed.x+shed.w-44, shed.y+30, 24, 20);
+  ctx.fillStyle = '#81d4fa';
+  ctx.fillRect(shed.x+shed.w-42, shed.y+32, 20, 16);
+  ctx.fillStyle = '#37474f';
+  ctx.fillRect(shed.x+shed.w-33, shed.y+32, 2, 16);
+  ctx.fillRect(shed.x+shed.w-42, shed.y+39, 20, 2);
+
+  // Door
+  const doorW = 32;
+  const doorX = shed.x + shed.w/2 - doorW/2;
+  ctx.fillStyle = '#3e2723';
+  ctx.fillRect(doorX, shed.y+shed.h-40, doorW, 40);
+  ctx.fillStyle = '#5d4037';
+  ctx.fillRect(doorX+2, shed.y+shed.h-38, doorW-4, 36);
+  // Door handle
+  ctx.fillStyle = '#ffd700';
+  ctx.fillRect(doorX+doorW-8, shed.y+shed.h-22, 3, 3);
+  // Sign
+  ctx.fillStyle = '#fff8dc';
+  ctx.fillRect(shed.x+shed.w/2-15, shed.y+shed.h-55, 30, 10);
+  ctx.fillStyle = '#000';
+  ctx.font = '8px monospace';
+  ctx.fillText('SHED', shed.x+shed.w/2-10, shed.y+shed.h-47);
+
+  // Trees (drawn last so they appear in front)
+  s.trees.forEach(t => drawTree(t));
+
+  // Custom-drawn interactables
+  s.interactables.forEach(it => {
+    if (it.draw) it.draw(ctx, it);
+  });
+}
+
+function drawShed() {
+  const s = scenes.shed;
+  const b = s.bounds;
+
+  // Floor (wood planks)
+  ctx.fillStyle = '#8b6f47';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#6f5736';
+  for (let y=b.wallT; y<b.wallB; y+=20) {
+    ctx.fillRect(b.wallL, y, b.wallR-b.wallL, 1);
+  }
+  for (let x=b.wallL; x<b.wallR; x+=60) {
+    ctx.fillStyle = '#5d4828';
+    ctx.fillRect(x, b.wallT, 1, b.wallB-b.wallT);
+  }
+
+  // Walls
+  // Top wall (with planks)
+  ctx.fillStyle = '#6d4c41';
+  ctx.fillRect(0, 0, W, b.wallT);
+  ctx.fillStyle = '#5d4037';
+  for (let x=0; x<W; x+=16) {
+    ctx.fillRect(x, 0, 1, b.wallT);
+  }
+  ctx.fillStyle = '#4e342e';
+  ctx.fillRect(0, b.wallT-4, W, 4);
+
+  // Side walls
+  ctx.fillStyle = '#6d4c41';
+  ctx.fillRect(0, 0, b.wallL, H);
+  ctx.fillRect(b.wallR, 0, W-b.wallR, H);
+  ctx.fillStyle = '#5d4037';
+  for (let y=0; y<H; y+=16) {
+    ctx.fillRect(0, y, b.wallL, 1);
+    ctx.fillRect(b.wallR, y, W-b.wallR, 1);
+  }
+
+  // Bottom wall (with door gap)
+  const doorW = 40;
+  const doorX = W/2 - doorW/2;
+  ctx.fillStyle = '#6d4c41';
+  ctx.fillRect(0, b.wallB, doorX, H-b.wallB);
+  ctx.fillRect(doorX+doorW, b.wallB, W-(doorX+doorW), H-b.wallB);
+  ctx.fillStyle = '#5d4037';
+  for (let x=0; x<W; x+=16) {
+    ctx.fillRect(x, b.wallB, 1, H-b.wallB);
+  }
+
+  // Door (open to grass behind)
+  ctx.fillStyle = '#4caf50';
+  ctx.fillRect(doorX, b.wallB-2, doorW, H-b.wallB+4);
+  ctx.fillStyle = '#388e3c';
+  for (let i=0; i<8; i++) {
+    ctx.fillRect(doorX + (i*5) % doorW, b.wallB+2 + (i*7)%30, 2, 2);
+  }
+  // Door frame
+  ctx.fillStyle = '#3e2723';
+  ctx.fillRect(doorX-2, b.wallB-4, 2, 6);
+  ctx.fillRect(doorX+doorW, b.wallB-4, 2, 6);
+
+  // Workbench
+  const bench = s.bench;
+  ctx.fillStyle = '#8b4513';
+  ctx.fillRect(bench.x, bench.y, bench.w, bench.h);
+  ctx.fillStyle = '#6b3410';
+  ctx.fillRect(bench.x, bench.y, bench.w, 4);
+  ctx.fillRect(bench.x, bench.y+bench.h-4, bench.w, 4);
+  // Bench legs
+  ctx.fillStyle = '#5d2f0a';
+  ctx.fillRect(bench.x+5, bench.y+bench.h, 4, 6);
+  ctx.fillRect(bench.x+bench.w-9, bench.y+bench.h, 4, 6);
+
+  // Pegboard above bench
+  ctx.fillStyle = '#a0826d';
+  ctx.fillRect(bench.x+5, bench.y-30, bench.w-10, 4);
+  ctx.fillStyle = '#5d4037';
+  for (let x=bench.x+10; x<bench.x+bench.w-10; x+=8) {
+    ctx.fillRect(x, bench.y-26, 1, 1);
+  }
+
+  // Custom interactables (tools, items, etc.)
+  s.interactables.forEach(it => {
+    if (it.draw) it.draw(ctx, it);
+  });
+
+  // Lantern light overlay if lit
+  if (inventory.has('Lantern Lit')) {
+    const grad = ctx.createRadialGradient(262, 150, 30, 262, 150, 300);
+    grad.addColorStop(0, 'rgba(255,235,150,0.15)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,W,H);
+  } else {
+    // Dim ambient
+    ctx.fillStyle = 'rgba(0,0,30,0.15)';
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function drawInteractionPrompt() {
+  const it = getNearbyInteractable();
+  if (!it || dialogOpen) return;
+  // Floating "!" or "E" indicator above interactable
+  const cx = it.x + it.w/2;
+  const cy = it.y - 8;
+  const t = Date.now()/300;
+  const yOff = Math.sin(t)*2;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(cx-7, cy-12+yOff, 14, 14);
+  ctx.fillStyle = '#ffd700';
+  ctx.fillRect(cx-6, cy-11+yOff, 12, 12);
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('E', cx, cy-2+yOff);
+  ctx.textAlign = 'left';
+
+  // Action text below
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  const txt = it.prompt || it.name;
+  const w = ctx.measureText(txt).width + 12;
+  ctx.fillRect(cx-w/2, cy+8, w, 16);
+  ctx.fillStyle = '#fff';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(txt, cx, cy+19);
+  ctx.textAlign = 'left';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  if (currentScene === 'garden') drawGarden();
+  else drawShed();
+
+  drawPlayer();
+  drawInteractionPrompt();
+}
+
+// ---------- Main loop ----------
+let lastTime = performance.now();
+function loop(now) {
+  const dt = now - lastTime;
+  lastTime = now;
+  update(dt);
+  draw();
+  // Reset just-pressed
+  for (const k in justPressed) justPressed[k] = false;
+  requestAnimationFrame(loop);
+}
+
+// ---------- Init ----------
+buildGarden();
+buildShed();
+updateInventory();
+requestAnimationFrame(loop);
+</script>
+
+
+</body></html>
