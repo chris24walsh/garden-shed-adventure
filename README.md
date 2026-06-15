@@ -14,6 +14,7 @@ Serve the `public` directory locally or deploy the static assets. The root `inde
 - **Use selected tool:** J or Z
 - **Interact / continue dialog:** E or Space
 - **Swap tool:** Q or R
+- **Unstuck / return to shed:** U
 - **Pause:** Escape
 
 On touch devices, use the on-screen D-pad and action buttons.

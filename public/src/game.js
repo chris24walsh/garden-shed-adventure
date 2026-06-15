@@ -175,13 +175,7 @@ function updateHud() {
   const empty = Math.ceil((player.maxHp - player.hp) / 2);
   heartsEl.textContent = `${"♥".repeat(full)}${"♡".repeat(empty)}`;
 
-  if (state.mode === "won") {
-    missionEl.textContent = "Garden restored";
-  } else if (state.fixings >= 4) {
-    missionEl.textContent = "Mission: open the buried greenhouse";
-  } else {
-    missionEl.textContent = `Mission: recover fixings ${state.fixings}/4`;
-  }
+  missionEl.textContent = nextMissionText();
 
   toolsEl.innerHTML = state.tools.map(tool => {
     const cls = tool === state.activeTool ? "tool active" : "tool";
@@ -190,6 +184,33 @@ function updateHud() {
 
   const bag = Array.from(state.items);
   bagEl.textContent = bag.length ? `Bag: ${bag.join(", ")}` : "Bag: empty";
+}
+
+function nextMissionText() {
+  if (state.mode === "won" || state.flags.has("won")) return "Garden restored";
+  if (!hasTool("can")) return "Next: get the watering can in the shed";
+  if (!state.items.has("Copper Clasp")) return "Next: water the wilted tomato";
+  if (!hasTool("shears")) return "Next: repair the shears at the shed";
+  if (!state.items.has("Root Pin")) return "Next: clear roots in compost";
+  if (!hasTool("shovel")) return "Next: repair the shovel at the shed";
+  if (!state.items.has("Glass Wick")) return "Next: dig out the cracked birdbath";
+  if (!hasTool("lantern")) return "Next: light up the lantern in the shed";
+  if (!state.items.has("Brass Gear")) return "Next: beat the mower in the vegetable patch";
+  if (!state.flags.has("greenhouseOpen")) return "Next: repair the vane at the workbench";
+  return "Next: face the Root-King";
+}
+
+function returnToShed() {
+  state.scene = "shed";
+  player.x = 306;
+  player.y = 374;
+  player.hp = Math.max(player.hp, 2);
+  player.invuln = 900;
+  state.mode = "playing";
+  if (state.dialogOpen) closeDialog();
+  flash("Returned to the shed");
+  updateHud();
+  saveGame();
 }
 
 function makeEnemy(type, x, y, options = {}) {
@@ -522,6 +543,11 @@ function update(dt) {
   if (state.mode === "won") {
     state.endingTimer += dt;
     if (justPressed.e || justPressed[" "] || justPressed.enter) closeDialog();
+    return;
+  }
+
+  if (justPressed.u) {
+    returnToShed();
     return;
   }
 
