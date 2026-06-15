@@ -1,23 +1,36 @@
-# Garden Shed Adventure
+# Garden Shed Adventure: Overgrown Quest
 
-A small top-down pixel adventure game built with HTML5 Canvas. Explore the garden, enter the shed, and collect tools.
+A small top-down Zelda-like garden adventure built with HTML5 Canvas. Explore the shed and garden, collect upgradeable tools, defeat enemies, recover the four lost fixings, and open the buried greenhouse for the final fight.
 
-It started in our family WhatsApp group — conversation drifted to the idea of us having a shed together, and somehow that became "let's build a virtual one." This is that shed.
+This is a forkable variation of `zincsoda/garden-shed-adventure`, keeping the original shed-and-garden charm while adding a primary mission, combat, progression, save/load, mobile controls, and an ending.
 
 ## Play
 
-**https://shed.swlabs.cc**
+Serve the `public` directory locally or deploy the static assets. The root `index.html` and legacy `shed.html` point to the playable game.
 
 ## Controls
 
 - **Move:** WASD or arrow keys
-- **Interact:** E or Space
+- **Use selected tool:** J or Z
+- **Interact / continue dialog:** E or Space
+- **Swap tool:** Q or R
+- **Pause:** Escape
+
+On touch devices, use the on-screen D-pad and action buttons.
+
+## Local dev
+
+```bash
+cd public
+python3 -m http.server 8787
+```
+
+Then open `http://localhost:8787`.
 
 ## Deploy
 
 Hosted on Cloudflare Workers (static assets).
 
 ```bash
-cp shed.html public/index.html
 wrangler deploy
 ```

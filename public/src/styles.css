@@ -1,0 +1,235 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #162018;
+  color: #f6f0dc;
+  font-family: "Courier New", monospace;
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 14px;
+}
+
+#shell {
+  width: min(100%, 760px);
+  display: grid;
+  gap: 10px;
+}
+
+#gameWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #050805;
+  border: 4px solid #263828;
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+#dialog {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 12px 14px;
+  background: rgba(16, 18, 13, 0.93);
+  border: 3px solid #e7c866;
+  border-radius: 6px;
+  line-height: 1.35;
+  font-size: clamp(13px, 2.2vw, 16px);
+}
+
+#dialog strong {
+  color: #f5d879;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#dialog small {
+  color: #b8baa8;
+  display: block;
+  margin-top: 8px;
+}
+
+#toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(9, 15, 10, 0.9);
+  border: 2px solid #f5d879;
+  border-radius: 6px;
+  color: #fff7d1;
+  padding: 8px 12px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+#hud {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: #213025;
+  border: 2px solid #314934;
+  border-radius: 8px;
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hud-row.compact {
+  align-items: flex-start;
+}
+
+#hearts {
+  color: #ff6b66;
+  font-size: 18px;
+  min-width: 92px;
+}
+
+#mission {
+  text-align: right;
+  color: #f5d879;
+  font-size: 14px;
+}
+
+#tools,
+#bag {
+  min-width: 0;
+  color: #d7dbc4;
+  font-size: 13px;
+}
+
+#tools {
+  flex: 1;
+}
+
+#bag {
+  text-align: right;
+  max-width: 45%;
+}
+
+.tool {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 3px 6px;
+  background: #314934;
+  border: 1px solid #4f7355;
+  border-radius: 4px;
+}
+
+.tool.active {
+  color: #1d261e;
+  background: #f5d879;
+  border-color: #f5d879;
+}
+
+#controlsHint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 14px;
+  color: #b8baa8;
+  font-size: 12px;
+}
+
+#touchControls {
+  display: none;
+  justify-content: space-between;
+  gap: 16px;
+  touch-action: none;
+}
+
+#touchControls button {
+  border: 2px solid #5b705f;
+  background: #2d3f31;
+  color: #f6f0dc;
+  border-radius: 8px;
+  font: 700 13px "Courier New", monospace;
+  min-width: 58px;
+  min-height: 52px;
+  touch-action: manipulation;
+}
+
+#touchControls button.pressed {
+  background: #f5d879;
+  border-color: #f5d879;
+  color: #1b241b;
+}
+
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 58px);
+  grid-template-rows: repeat(3, 52px);
+  gap: 5px;
+}
+
+.dpad button[data-key="arrowup"] {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.dpad button[data-key="arrowleft"] {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dpad button[data-key="arrowdown"] {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.dpad button[data-key="arrowright"] {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 72px;
+  gap: 8px;
+  align-content: center;
+}
+
+@media (pointer: coarse), (max-width: 760px) {
+  body {
+    align-items: start;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
+  #touchControls {
+    display: flex;
+  }
+
+  #controlsHint {
+    display: none;
+  }
+
+  #bag {
+    max-width: 38%;
+  }
+}
